@@ -25,6 +25,7 @@ pipeline {
      image 'maven:3.6.1-jdk-11-slim'
      args '-v $HOME/.m2:/root/.m2'
     }
+   }
  
    steps {
     echo 'Running Unit tests on worker app'
@@ -43,7 +44,7 @@ pipeline {
      image 'maven:3.6.1-jdk-11-slim'
      args '-v $HOME/.m2:/root/.m2'
     }
- 
+   }
    steps {
     echo 'Packaging worker app'
     dir('worker') {
