@@ -1,34 +1,145 @@
 pipeline {
-    agent any 
-
-    stages{
-        stage("one"){
-            steps{
-                echo 'step 1'
-                sleep 3
-            }
-        }
-        stage("two"){
-            steps{
-                echo 'step 2'
-                sleep 9
-            }
-        }
-        stage("three"){
-            when {
-              branch 'master'
-              changeset "**/worker/**"
-            }
-            steps{
-                echo 'step 3'
-                sleep 5
-            }
-        }
-    } 
-
-    post{
-      always{
-          echo 'This pipeline is completed.'
-      }
+ 
+ agent none
+ 
+ stages("vote") {
+  stage("build") {
+   when { changeset "**/worker/**" }
+   agent {
+    docker {
+     image 'maven:3.6.1-jdk-11-slim'
+     args '-v $HOME/.m2:/root/.m2'
     }
-}
+   }
+   steps {
+    echo 'Compiling worker app'
+    dir('worker'){
+     sh 'mvn compile'
+    }
+   }
+  }
+  stage("test") {
+   when { changeset "**/worker/**" }
+   agent {
+    docker {
+     image 'maven:3.6.1-jdk-11-slim'
+     args '-v $HOME/.m2:/root/.m2'
+    }
+   }
+ 
+   steps {
+    echo 'Running Unit tests on worker app'
+    dir('worker') {
+     sh 'mvn clean test'
+    }
+   }
+  }
+  stage("package") {
+   when {
+    branch 'master'
+    changeset "**/worker/**"
+   }
+   agent {
+    docker {
+     image 'maven:3.6.1-jdk-11-slim'
+     args '-v $HOME/.m2:/root/.m2'
+    }
+   }
+   steps {
+    echo 'Packaging worker app'
+    dir('worker') {
+     sh 'mvn package -DskipTests'
+     archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true
+    }
+   }
+
+ stages("worker") {
+  stage("build") {
+   when { changeset "**/worker/**" }
+   agent {
+    docker {
+     image 'maven:3.6.1-jdk-11-slim'
+     args '-v $HOME/.m2:/root/.m2'
+    }
+   }
+   steps {
+    echo 'Compiling worker app'
+    dir('worker'){
+     sh 'mvn compile'
+    }
+   }
+  }
+  stage("test") {
+   when { changeset "**/worker/**" }
+   agent {
+    docker {
+     image 'maven:3.6.1-jdk-11-slim'
+     args '-v $HOME/.m2:/root/.m2'
+    }
+   }
+ 
+   steps {
+    echo 'Running Unit tests on worker app'
+    dir('worker') {
+     sh 'mvn clean test'
+    }
+   }
+  }
+  stage("package") {
+   when {
+    branch 'master'
+    changeset "**/worker/**"
+   }
+   agent {
+    docker {
+     image 'maven:3.6.1-jdk-11-slim'
+     args '-v $HOME/.m2:/root/.m2'
+    }
+   }
+   steps {
+    echo 'Packaging worker app'
+    dir('worker') {
+     sh 'mvn package -DskipTests'
+     archiveArtifacts artifacts: '**/target/*.jar', fingerprint: true
+    }
+   }
+  }
+  stage("docker-package") {
+   agent any
+   steps {
+    echo 'Packaging worker app with docker'
+    script {
+     docker.withRegistry('https://index.docker.io/v1/', 'dockerlogin') {
+      def workerImage = docker.build("iv41879/worker:v${env.BUILD_ID}", "./worker")
+      workerImage.push()
+      workerImage.push("${env.BRANCH_NAME}")
+      workerImage.push("latest")
+     }
+    } 
+   }
+  }
+ }
+
+ stages("final") {
+  stage('deploy to dev') {
+   agent any
+   when { branch 'master' }
+   steps {
+    echo 'Deploy instavote app with docker compose'
+    sh 'docker-compose up -d'
+   }
+  }
+ }
+
+ post {
+  always {
+   echo 'Building multibranch mono  pipeline for worker is completed...'
+  }
+  failure {
+   slackSend (channel: "ci-cd", message: "Build Failed - ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+  }
+  success {
+   slackSend (channel: "ci-cd", message: "Build Succeeded - ${env.JOB_NAME} ${env.BUILD_NUMBER} (<${env.BUILD_URL}|Open>)")
+  }
+ } 
+} 
